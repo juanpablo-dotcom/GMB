@@ -135,6 +135,22 @@ thead th{padding:9px 13px;text-align:left;font-size:11.5px;color:#5f6368;font-we
 .gloss-b{padding:14px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
 .gloss-i{display:flex;gap:10px;align-items:flex-start}.gloss-i b{color:#3c4043}.gloss-i span.t{font-size:12px;color:#5f6368}
 .muted{color:#80868b;font-style:italic}
+.flt{display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0}
+.flt-in{width:220px;padding:6px 12px;border:1.5px solid #dadce0;border-radius:99px;font-size:13px;background:#fff;color:#1a1a1a;outline:none}
+.flt-in:focus{border-color:#1a73e8}
+.flt-sel{padding:6px 10px;border:1.5px solid #dadce0;border-radius:99px;font-size:12.5px;background:#fff;color:#3c4043;cursor:pointer}
+.flt-chips{display:flex;gap:5px}
+.flt-chip{padding:5px 11px;border-radius:99px;border:1.5px solid #e8eaed;background:#fff;font-size:12px;color:#5f6368;cursor:pointer;white-space:nowrap}
+.flt-chip:hover{border-color:#1a73e8;color:#1a73e8}
+.flt-chip.active{background:#e8f0fe;border-color:#1a73e8;color:#1967d2;font-weight:600}
+.flt-count{font-size:11.5px;color:#5f6368;white-space:nowrap}
+.flt-clear{border:none;background:none;color:#1a73e8;font-size:12px;cursor:pointer;white-space:nowrap}
+.tab-btn.flt-hide{display:none}
+.group-switcher{flex-wrap:wrap;row-gap:8px}.group-btn{flex-shrink:0}
+.flt{flex:1 1 420px;min-width:0;justify-content:flex-end}
+.flt-chips{min-width:0;overflow-x:auto;scrollbar-width:none}.flt-chips::-webkit-scrollbar{display:none}
+@media(max-width:680px){.group-switcher{flex-wrap:wrap}.flt{flex-basis:100%;flex-wrap:wrap;justify-content:flex-start}.flt-in{flex:1;min-width:160px}}
+.flt-empty{padding:11px 15px;font-size:12.5px;color:#80868b;font-style:italic;white-space:nowrap}
 .copy-btn{margin-top:4px;padding:4px 12px;border-radius:99px;border:1.5px solid #c5d8fc;background:#e8f0fe;color:#1967d2;font-size:12px;font-weight:600;cursor:pointer}
 .copy-btn:hover{background:#d2e3fc}
 .copy-panel{background:#fff;border-bottom:1px solid #e8eaed;padding:12px 24px}
@@ -164,6 +180,13 @@ thead th{padding:9px 13px;text-align:left;font-size:11.5px;color:#5f6368;font-we
 <div class="group-switcher">
   <button class="group-btn active" id="grp-mkt" type="button"></button>
   <button class="group-btn" id="grp-nexus" type="button"></button>
+  <div class="flt" role="search">
+    <input class="flt-in" id="flt-q" type="search" placeholder="🔎 Buscar ubicación, hotel, ciudad…" aria-label="Buscar ubicación">
+    <select class="flt-sel" id="flt-dest" aria-label="Destino"></select>
+    <div class="flt-chips" id="flt-chips"></div>
+    <span class="flt-count" id="flt-count"></span>
+    <button class="flt-clear" id="flt-clear" type="button" hidden="">Limpiar</button>
+  </div>
 </div>
 <div class="tabs-wrapper" id="mkt-tabs-wrapper">
   <button class="tabs-scroll-btn left hidden" id="mkt-tabs-prev" type="button" aria-label="Anterior">‹</button>
@@ -290,6 +313,7 @@ function activateGroup(group){
   document.getElementById("nexus-tabs-wrapper").hidden=group!=="nexus";
   document.getElementById("mkt-tab-content").hidden=group!=="mkt";
   document.getElementById("nexus-tab-content").hidden=group!=="nexus";
+  if(typeof fltReset==="function")fltReset();
   setTimeout(()=>updateArrows(group),100);setTimeout(()=>updateArrows(group),700);
 }
 const inited=new Set();
@@ -318,6 +342,41 @@ document.getElementById("grp-mkt").addEventListener("click",()=>activateGroup("m
 document.getElementById("grp-nexus").addEventListener("click",()=>activateGroup("nexus"));
 activateTab("resumen");
 window.addEventListener("load",()=>{if(!chartReg["mkt-totalv"]){inited.delete("resumen");activateTab("resumen")}updateArrows("mkt");updateArrows("nexus")});
+
+// ── Filtro de ubicaciones (búsqueda, destino, tipo) ──
+const norm=s=>String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase();
+const AIR=/aeropuerto|airport/i,HOT=/hotel|resort|villa|residences|boutique|royalton|riu|iberostar|princess|palladium|principe|ocean |eurostars|hedonism|legends|rooms|sunset|planet hollywood|delta|samba|vista sol|joia/i;
+function locType(g,l){if(AIR.test(l.name))return"air";if(g==="nexus")return l.name.trim()==="NexusTours"?"":"desk";return HOT.test(l.name)?"hotel":""}
+const CHIPS={nexus:[["","Todas"],["desk","🏨 Desks en hotel"],["air","✈️ Aeropuertos"],["b:royalton","Royalton"],["b:riu","RIU"],["b:iberostar","Iberostar"],["b:princess","Princess"]],
+  mkt:[["","Todas"],["hotel","🏨 Hoteles / villas"],["b:nexus","NexusTours"],["b:scubacaribe","ScubaCaribe"],["b:learning tree","Learning Tree"]]};
+const flt={q:"",dest:"",chip:""};
+function fltTag(){["mkt","nexus"].forEach(g=>{document.querySelectorAll("#"+g+"-tabs-bar .tab-btn").forEach(b=>{const m=b.dataset.tab.match(/loc-(\d+)$/);if(!m)return;const l=D.groups[g].locs[+m[1]];
+  b.dataset.hay=norm([l.name,l.city,l.country,l.dest].join(" "));b.dataset.dest=l.dest||"";b.dataset.type=locType(g,l)})})}
+function fltRenderControls(){const g=_activeGroup,locs=D.groups[g].locs;
+  const by={};locs.forEach(l=>{by[l.dest]=(by[l.dest]||0)+1});
+  document.getElementById("flt-dest").innerHTML='<option value="">🌎 Todos los destinos</option>'+Object.keys(by).sort().map(d=>'<option value="'+esc(d)+'">'+esc(d)+' ('+by[d]+')</option>').join("");
+  const cnt=k=>locs.filter((l,i)=>fltChipOk(k,locType(g,l),norm(l.name))).length;
+  document.getElementById("flt-chips").innerHTML=CHIPS[g].filter(([k])=>!k||cnt(k)>0).map(([k,t])=>'<button class="flt-chip'+(k===flt.chip?' active':'')+'" type="button" data-chip="'+k+'">'+t+(k?' <span style="opacity:.7">'+cnt(k)+'</span>':'')+'</button>').join("")}
+function fltChipOk(k,type,name){if(!k)return true;if(k.startsWith("b:"))return name.includes(k.slice(2));return type===k}
+function fltApply(){const g=_activeGroup,bar=document.getElementById(g+"-tabs-bar");const q=norm(flt.q).trim().split(/\s+/).filter(Boolean);let n=0,tot=0,first=null;
+  bar.querySelectorAll(".tab-btn").forEach(b=>{if(b.dataset.hay===undefined)return;tot++;
+    const ok=q.every(w=>b.dataset.hay.includes(w))&&(!flt.dest||b.dataset.dest===flt.dest)&&fltChipOk(flt.chip,b.dataset.type,b.dataset.hay);
+    b.classList.toggle("flt-hide",!ok);if(ok){n++;if(!first)first=b}});
+  let em=bar.querySelector(".flt-empty");if(!n){if(!em){em=document.createElement("span");em.className="flt-empty";bar.appendChild(em)}em.textContent="Sin ubicaciones para este filtro."}else if(em)em.remove();
+  const on=!!(flt.q||flt.dest||flt.chip);
+  document.getElementById("flt-count").textContent=on?n+" de "+tot:"";document.getElementById("flt-clear").hidden=!on;
+  bar.scrollLeft=0;setTimeout(()=>updateArrows(g),50);return first}
+function fltReset(){flt.q="";flt.dest="";flt.chip="";document.getElementById("flt-q").value="";fltRenderControls();["mkt","nexus"].forEach(g=>{document.querySelectorAll("#"+g+"-tabs-bar .tab-btn").forEach(b=>b.classList.remove("flt-hide"));const e=document.querySelector("#"+g+"-tabs-bar .flt-empty");if(e)e.remove()});fltApply()}
+fltTag();fltRenderControls();
+function fltSticky(){const tw=document.querySelectorAll(".tabs-wrapper");if(innerWidth<=680){tw.forEach(t=>t.style.top="");return}
+  const h=["header","data-banner","group-switcher"].reduce((a,c)=>a+document.querySelector("."+c).offsetHeight,0);
+  document.querySelector(".group-switcher").style.top="";tw.forEach(t=>t.style.top="calc("+h+"px + env(safe-area-inset-top,0px))")}
+fltSticky();addEventListener("resize",fltSticky);addEventListener("load",fltSticky);
+document.getElementById("flt-q").addEventListener("input",e=>{flt.q=e.target.value;fltApply()});
+document.getElementById("flt-q").addEventListener("keydown",e=>{if(e.key==="Enter"){const f=fltApply();if(f)activateTab(f.dataset.tab)}});
+document.getElementById("flt-dest").addEventListener("change",e=>{flt.dest=e.target.value;fltApply()});
+document.getElementById("flt-chips").addEventListener("click",e=>{const c=e.target.closest(".flt-chip");if(!c)return;flt.chip=c.dataset.chip;document.querySelectorAll(".flt-chip").forEach(x=>x.classList.toggle("active",x===c));fltApply()});
+document.getElementById("flt-clear").addEventListener("click",fltReset);
 
 // ── Copiar HTML ──
 (function(){
